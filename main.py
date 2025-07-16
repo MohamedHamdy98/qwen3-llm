@@ -20,15 +20,6 @@ app.add_middleware(
 app.include_router(router, prefix="/api")
 
 
-"""
 
-#------------------------>  For Testing with generate  <------------------------#
-
-curl -X POST http://localhost:8000/api/generate \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "prompt=اشرح لي الذكاء الاصطناعي&max_tokens=256"
-
-
-"""
 
 
