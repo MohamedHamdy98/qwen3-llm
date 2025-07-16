@@ -1,7 +1,7 @@
 
 # 🧪 Qwen API Testing Guide
 
-This guide provides `curl` examples for testing the Qwen API endpoints with text, images, and PDF files.
+This guide provides `curl` examples for testing the Qwen API endpoints with text.
 
 ---
 
