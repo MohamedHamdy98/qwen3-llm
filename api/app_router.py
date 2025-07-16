@@ -19,7 +19,8 @@ print("✅ Model loaded to device:", model.device)
 @router.post("/generate")
 def generate_text(
     prompt: str = Form(...),
-    max_tokens: int = Form(512)
+    max_tokens: int = Form(512),
+    thinking: bool = Form(False)
 ):
     try:
         # Format as chat messages
@@ -28,7 +29,7 @@ def generate_text(
             messages,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=True  # Optional, supported in Qwen
+            enable_thinking=thinking  # Optional, supported in Qwen
         )
 
         # Tokenize input
@@ -57,6 +58,84 @@ def generate_text(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"🔥 Inference error: {str(e)}")
+
+@router.post("/extract_controls")
+def extract_controls(
+    prompt: str = Form(...),
+    max_tokens: int = Form(512),
+    thinking: bool = Form(False)
+):
+    try:
+        # ✅ System message to instruct the LLM
+        system_message = """
+        You are a smart clause extraction assistant. Your task is to extract clear regulatory or contractual **instructions or obligations** from raw policy content written in **Arabic or English**, and return them in a structured JSON format.
+
+        📌 Rules to follow:
+        1. The input will be raw text extracted from a Word document.
+        2. Completely **ignore** any content under headings titled “المقدمة” or “التعريفات” (Introduction / Definitions).
+        3. Extract only actual **instructions, obligations, or restrictions**.
+
+        🟢 Valid clauses typically begin with:
+        - In Arabic: "يجب", "لا يجوز", "لا يجب", "يمكن", "يقتصر", "يُحظر", "يلتزم", "يتعين"
+        - In English: "must", "must not", "shall", "shall not", "should", "may", "is required to", "is prohibited from"
+
+        📦 Expected JSON format:
+        Return the extracted clauses as an array of objects like:
+        {
+          "clauses": [
+            { "title": "التعليمات: 1", "description": "..." },
+            { "title": "التعليمات: 2", "description": "..." }
+          ]
+        }
+
+        🚫 Do NOT include:
+        - Any explanation or reasoning
+        - Any markdown formatting (e.g., ```json)
+        - Any extra tags (e.g., <think>)
+        - Any text outside the JSON block
+
+        ✅ Your output must begin with:
+        {
+        "clauses": [
+        """
+
+        # Format as chat messages
+        messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt}
+        ]
+
+        prompt_text = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=thinking
+        )
+
+        model_inputs = tokenizer([prompt_text], return_tensors="pt").to(model.device)
+
+        # Generate output
+        output_ids = model.generate(
+            **model_inputs,
+            max_new_tokens=max_tokens
+        )[0][model_inputs.input_ids.shape[1]:]
+
+        # Decode full output
+        full_output = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+
+        # ✅ Extract only the part after </think> if it exists
+        if "</think>" in full_output:
+            clean_output = full_output.split("</think>")[-1].strip()
+        else:
+            clean_output = full_output
+
+        return {
+            "response": clean_output  # 🔥 Just the JSON response only
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"🔥 Inference error: {str(e)}")
+
 
 @router.get("/monitor_dashboard")
 async def monitor_dashboard():
