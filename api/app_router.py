@@ -1,12 +1,9 @@
 # app_router.py
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Form
 from fastapi.responses import JSONResponse
-from typing import List
-import subprocess, asyncio
+import subprocess
 import psutil
-import io, torch, logging
-from utils.helper_functions import compress_image_bytes, load_image
-import json
+import torch, logging
 from utils.model_loader import load_model_and_tokenizer
 
 router = APIRouter()
