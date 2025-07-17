@@ -1,10 +1,16 @@
 # app_router.py
-from fastapi import APIRouter, HTTPException, Form
+from fastapi import APIRouter, HTTPException, Form, Query, Depends
 from fastapi.responses import JSONResponse
-import subprocess
-import psutil
+from typing import List, Optional
+from datetime import datetime
+from sqlalchemy.orm import Session
+from models.gpu_log import GPULog
 import torch, logging
 from utils.model_loader import load_model_and_tokenizer
+from utils.helper_functions import get_gpu_info
+import uuid
+from database.session import SessionLocal
+from utils.save_gpu_log import save_gpu_log
 
 router = APIRouter()
 
@@ -16,48 +22,56 @@ print("🔄 Loading Qwen3-4B model and tokenizer...")
 model, tokenizer = load_model_and_tokenizer()
 print("✅ Model loaded to device:", model.device)
 
-@router.post("/generate")
-def generate_text(
-    prompt: str = Form(...),
-    max_tokens: int = Form(512),
-    thinking: bool = Form(False)
-):
+# @router.post("/generate")
+# def generate_text(
+#     prompt: str = Form(...),
+#     max_tokens: int = Form(512),
+#     thinking: bool = Form(False)
+# ):
+#     try:
+#         # Format as chat messages
+#         messages = [{"role": "user", "content": prompt}]
+#         prompt_text = tokenizer.apply_chat_template(
+#             messages,
+#             tokenize=False,
+#             add_generation_prompt=True,
+#             enable_thinking=thinking  # Optional, supported in Qwen
+#         )
+
+#         # Tokenize input
+#         model_inputs = tokenizer([prompt_text], return_tensors="pt").to(model.device)
+
+#         # Generate output
+#         output_ids = model.generate(
+#             **model_inputs,
+#             max_new_tokens=max_tokens
+#         )[0][model_inputs.input_ids.shape[1]:]
+
+#         # Optional: parse thinking content if exists
+#         try:
+#             think_token_id = tokenizer.convert_tokens_to_ids("</think>")
+#             index = len(output_ids) - output_ids[::-1].index(think_token_id)
+#         except ValueError:
+#             index = 0
+
+#         thinking = tokenizer.decode(output_ids[:index], skip_special_tokens=True).strip()
+#         response = tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip()
+
+#         return {
+#             "thinking": thinking,
+#             "response": response
+#         }
+
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"🔥 Inference error: {str(e)}")
+
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
     try:
-        # Format as chat messages
-        messages = [{"role": "user", "content": prompt}]
-        prompt_text = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=thinking  # Optional, supported in Qwen
-        )
-
-        # Tokenize input
-        model_inputs = tokenizer([prompt_text], return_tensors="pt").to(model.device)
-
-        # Generate output
-        output_ids = model.generate(
-            **model_inputs,
-            max_new_tokens=max_tokens
-        )[0][model_inputs.input_ids.shape[1]:]
-
-        # Optional: parse thinking content if exists
-        try:
-            think_token_id = tokenizer.convert_tokens_to_ids("</think>")
-            index = len(output_ids) - output_ids[::-1].index(think_token_id)
-        except ValueError:
-            index = 0
-
-        thinking = tokenizer.decode(output_ids[:index], skip_special_tokens=True).strip()
-        response = tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip()
-
-        return {
-            "thinking": thinking,
-            "response": response
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"🔥 Inference error: {str(e)}")
+        yield db
+    finally:
+        db.close()
 
 @router.post("/extract_controls")
 def extract_controls(
@@ -65,7 +79,15 @@ def extract_controls(
     max_tokens: int = Form(512),
     thinking: bool = Form(False)
 ):
+    request_id = str(uuid.uuid4())
     try:
+        logger.info(f"📥 Request {request_id} started for /extract_controls")
+        gpu_before = get_gpu_info()
+        logger.info(f"📊 GPU BEFORE: {gpu_before}")
+        save_gpu_log("extract_controls", request_id, gpu_before, "before")
+        logger.info("📥 Received request to /extract_controls endpoint.")
+        logger.info(f"Prompt length: {len(prompt)} characters | max_tokens: {max_tokens} | thinking: {thinking}")
+
         # ✅ System message to instruct the LLM
         system_message = """
         You are a smart clause extraction assistant. Your task is to extract clear regulatory or contractual **instructions or obligations** from raw policy content written in **Arabic or English**, and return them in a structured JSON format.
@@ -99,7 +121,8 @@ def extract_controls(
         "clauses": [
         """
 
-        # Format as chat messages
+        logger.info("🧠 Preparing messages for the LLM...")
+
         messages = [
             {"role": "system", "content": system_message},
             {"role": "user", "content": prompt}
@@ -112,84 +135,75 @@ def extract_controls(
             enable_thinking=thinking
         )
 
+        logger.info("🔁 Tokenizing input and sending to model...")
         model_inputs = tokenizer([prompt_text], return_tensors="pt").to(model.device)
 
-        # Generate output
         output_ids = model.generate(
             **model_inputs,
             max_new_tokens=max_tokens
         )[0][model_inputs.input_ids.shape[1]:]
 
-        # Decode full output
         full_output = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+        logger.info("✅ Model generation complete.")
 
-        # ✅ Extract only the part after </think> if it exists
         if "</think>" in full_output:
             clean_output = full_output.split("</think>")[-1].strip()
+            logger.info("🧽 Cleaned output after </think> tag.")
         else:
             clean_output = full_output
 
+        logger.info("🎯 Returning extracted clauses JSON.")
+
+        # 🚀 Log GPU state after processing
+        gpu_after = get_gpu_info()
+        logger.info(f"📊 GPU AFTER: {gpu_after}")
+        save_gpu_log("extract_controls", request_id, gpu_after, "after")
+
         return {
-            "response": clean_output  # 🔥 Just the JSON response only
+            "response": clean_output
         }
 
     except Exception as e:
+        logger.exception("🔥 Inference error occurred.")
         raise HTTPException(status_code=500, detail=f"🔥 Inference error: {str(e)}")
 
 
-@router.get("/monitor_dashboard")
-async def monitor_dashboard():
-    try:
-        # 1. GPU Info via PyTorch
-        gpu_stats = []
-        if torch.cuda.is_available():
-            for i in range(torch.cuda.device_count()):
-                props = torch.cuda.get_device_properties(i)
-                torch.cuda.set_device(i)
-                gpu_stats.append({
-                    "device_id": i,
-                    "device_name": props.name,
-                    "total_memory_MB": round(props.total_memory / 1024**2, 2),
-                    "memory_allocated_MB": round(torch.cuda.memory_allocated(i) / 1024**2, 2),
-                    "memory_reserved_MB": round(torch.cuda.memory_reserved(i) / 1024**2, 2),
-                    "capability": props.major,
-                })
-        else:
-            gpu_stats = "CUDA not available"
 
-        # 2. Check FlashAttention usage (only if manually enabled)
-        flash_attention_used = "flash_attention_2" in str(getattr(model.config, "attn_implementation", "")).lower()
+@router.get("/logs/gpu", summary="Query GPU usage logs", tags=["Admin"])
+def get_gpu_logs(
+    request_id: Optional[str] = Query(None, description="Filter by request ID"),
+    endpoint: Optional[str] = Query(None, description="Filter by endpoint"),
+    stage: Optional[str] = Query(None, regex="^(before|after)$", description="Filter by stage"),
+    limit: int = Query(100, ge=1, le=1000, description="Max number of logs to return"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(GPULog)
 
-        # 3. Nvidia-smi raw output
-        try:
-            smi_output = subprocess.check_output(["nvidia-smi"], timeout=5).decode()
-        except Exception as e:
-            smi_output = f"nvidia-smi error: {str(e)}"
+    if request_id:
+        query = query.filter(GPULog.request_id == request_id)
+    if endpoint:
+        query = query.filter(GPULog.endpoint == endpoint)
+    if stage:
+        query = query.filter(GPULog.stage == stage)
 
-        # 4. CPU memory
-        virtual_mem = psutil.virtual_memory()
-        cpu_memory = {
-            "total_MB": round(virtual_mem.total / 1024**2, 2),
-            "used_MB": round(virtual_mem.used / 1024**2, 2),
-            "percent": virtual_mem.percent
+    logs = query.order_by(GPULog.timestamp.desc()).limit(limit).all()
+
+    return [
+        {
+            "id": log.id,
+            "timestamp": log.timestamp,
+            "endpoint": log.endpoint,
+            "request_id": log.request_id,
+            "stage": log.stage,
+            "gpu_index": log.gpu_index,
+            "mem_used_MB": log.mem_used_MB,
+            "mem_total_MB": log.mem_total_MB,
+            "gpu_util_percent": log.gpu_util_percent,
+            "mem_util_percent": log.mem_util_percent,
         }
-
-        # 5. Model loaded device (optional)
-        model_device = str(next(model.parameters()).device) if model else "Not loaded"
-
-        return JSONResponse(content={
-            "cuda_available": torch.cuda.is_available(),
-            "torch_version": torch.__version__,
-            "flash_attention_used": flash_attention_used,
-            "gpu_stats": gpu_stats,
-            "cpu_memory": cpu_memory,
-            "model_device": model_device,
-            "nvidia_smi": smi_output
-        })
-
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"status": "error", "error": str(e)})
+        for log in logs
+    ]
     
 @router.get("/")
 def home():
-    return {"message": "Qwen Model is Working..🔥"}
+    return {"message": "Qwen 3 Model is Working..🔥"}

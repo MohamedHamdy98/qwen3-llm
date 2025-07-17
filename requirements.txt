@@ -6,3 +6,5 @@ pillow
 fastapi
 uvicorn
 python-multipart
+nvidia-ml-py3
+pynvml
