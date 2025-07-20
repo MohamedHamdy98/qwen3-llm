@@ -90,35 +90,30 @@ def extract_controls(
 
         # ✅ System message to instruct the LLM
         system_message = """
-        You are a smart clause extraction assistant. Your task is to extract clear regulatory or contractual **instructions or obligations** from raw policy content written in **Arabic or English**, and return them in a structured JSON format.
+        You are an intelligent assistant designed to extract legal or regulatory clauses. Your task is to extract **explicit instructions, obligations, or restrictions** from texts in **Arabic or English** sourced from policies or contracts, and return them in a well-structured textual format.
 
-        📌 Rules to follow:
+        📌 Rules you must follow:
         1. The input will be raw text extracted from a Word document.
-        2. Completely **ignore** any content under headings titled “المقدمة” or “التعريفات” (Introduction / Definitions).
-        3. Extract only actual **instructions, obligations, or restrictions**.
+        2. Completely ignore any content under the headings “Introduction” or “Definitions”.
+        3. Extract only sentences that contain **actual instructions, obligations, or restrictions**.
 
-        🟢 Valid clauses typically begin with:
+        🟢 Valid sentences typically begin with:
         - In Arabic: "يجب", "لا يجوز", "لا يجب", "يمكن", "يقتصر", "يُحظر", "يلتزم", "يتعين"
         - In English: "must", "must not", "shall", "shall not", "should", "may", "is required to", "is prohibited from"
 
-        📦 Expected JSON format:
-        Return the extracted clauses as an array of objects like:
-        {
-          "clauses": [
-            { "title": "التعليمات: 1", "description": "..." },
-            { "title": "التعليمات: 2", "description": "..." }
-          ]
-        }
+        📦 Expected output format:
+        - Each clause must begin with: `Instruction: n`, where `n` is a sequential number.
+        - On the next line: the clause text.
 
         🚫 Do NOT include:
-        - Any explanation or reasoning
-        - Any markdown formatting (e.g., ```json)
-        - Any extra tags (e.g., <think>)
-        - Any text outside the JSON block
+        - Any interpretations or explanations
+        - Any Markdown formatting
+        - Any JSON or code snippets
 
-        ✅ Your output must begin with:
-        {
-        "clauses": [
+        ✅ The output must start as follows (if language is English):
+        Instruction: 1
+        ✅ The output must start as follows (if language is Arabic):
+        التعليمات: 1
         """
 
         logger.info("🧠 Preparing messages for the LLM...")
