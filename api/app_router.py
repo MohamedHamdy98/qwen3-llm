@@ -191,6 +191,40 @@ def extract_controls(
         logger.exception("🔥 Inference error occurred.")
         raise HTTPException(status_code=500, detail=f"🔥 Inference error: {str(e)}")
 
+@router.post("/chat_llm")
+def chat_llm(prompt: str = Form(...), max_tokens: int = Form(512), thinking: bool = Form(False)):
+    request_id = str(uuid.uuid4())
+    logger.info(f"📥 Request {request_id} started for /chat_llm")
+
+    try:
+        gpu_before = get_gpu_info()
+        save_gpu_log("chat_llm", request_id, gpu_before, "before")
+
+        logger.info(f"Prompt length: {len(prompt)} | max_tokens: {max_tokens} | thinking: {thinking}")
+
+        prompt_text = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=thinking
+        )
+
+        model_inputs = tokenizer([prompt_text], return_tensors="pt").to(model.device)
+
+        output_ids = model.generate(**model_inputs, max_new_tokens=max_tokens)[0][model_inputs.input_ids.shape[1]:]
+        full_output = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+
+        clean_output = full_output.split("</think>")[-1].strip() if "</think>" in full_output else full_output
+
+        gpu_after = get_gpu_info()
+        save_gpu_log("chat_llm", request_id, gpu_after, "after")
+
+        return {"response": clean_output}
+
+    except Exception as e:
+        logger.exception("🔥 Inference error occurred.")
+        raise HTTPException(status_code=500, detail=f"Inference error: {str(e)}")
+
 
 
 @router.get("/logs/gpu", summary="Query GPU usage logs", tags=["Admin"])
