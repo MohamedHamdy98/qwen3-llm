@@ -89,62 +89,117 @@ def extract_controls(
         logger.info(f"Prompt length: {len(prompt)} characters | max_tokens: {max_tokens} | thinking: {thinking}")
 
         # ✅ System message to instruct the LLM
-        system_message = "\n".join([
-            "You are an intelligent assistant designed to extract legal or regulatory clauses.",
-            "Your task is to extract **explicit instructions, obligations, or restrictions** from raw text that may be written in Arabic, English, or both.",
-            "",
-            "📌 Rules you must follow:",
-            "1. Ignore any content under the headings 'Introduction' or 'Definitions' (in either language).",
-            "2. Only extract **clear instructions or rules** that contain obligations or restrictions (e.g. what must be done, or what is prohibited).",
-            "3. Do not include summaries, explanations, or rephrasing. Only extract the exact sentence as it appears in the input.",
-            "",
-            "🌍 Language detection:",
-            "- If the extracted sentence is **Arabic**, use this title format: `\"التعليمات: n\"`",
-            "- If the extracted sentence is **English**, use this title format: `\"Instruction: n\"`",
-            "",
-            "🟢 Valid sentences typically begin with:",
-            "- Arabic: \"يجب\", \"لا يجوز\", \"لا يجب\", \"يمكن\", \"يقتصر\", \"يُحظر\", \"يلتزم\", \"يتعين\"",
-            "- English: \"must\", \"must not\", \"shall\", \"shall not\", \"should\", \"may\", \"is required to\", \"is prohibited from\"",
-            "",
-            "📦 Return your results in the following pure JSON format.",
-            "",
-            "🔸 Example (Arabic only):",
-            "{",
-            "  \"clauses\": [",
-            "    {",
-            "      \"title\": \"التعليمات: 1\",",
-            "      \"description\": \"يجب على مقدم الخدمة حماية البيانات الشخصية.\"",
-            "    },",
-            "    {",
-            "      \"title\": \"التعليمات: 2\",",
-            "      \"description\": \"يُحظر على مقدم الخدمة مشاركة البيانات دون موافقة المستخدم.\"",
-            "    }",
-            "  ]",
-            "}",
-            "",
-            "🔸 Example (English only):",
-            "{",
-            "  \"clauses\": [",
-            "    {",
-            "      \"title\": \"Instruction: 1\",",
-            "      \"description\": \"The provider must notify users of any security breach.\"",
-            "    },",
-            "    {",
-            "      \"title\": \"Instruction: 2\",",
-            "      \"description\": \"Users must not share their passwords with unauthorized parties.\"",
-            "    }",
-            "  ]",
-            "}",
-            "",
-            "🚫 DO NOT include:",
-            "- Any explanations or commentary",
-            "- Markdown formatting",
-            "- Code blocks or extra text",
-            "",
-            "✅ ONLY return the pure JSON object as shown in the examples above."
-        ])
+        # system_message = "\n".join([
+        #     "You are an intelligent assistant designed to extract legal or regulatory clauses.",
+        #     "Your task is to extract **explicit instructions, obligations, or restrictions** from raw text that may be written in Arabic, English, or both.",
+        #     "",
+        #     "📌 Rules you must follow:",
+        #     "1. Ignore any content under the headings 'Introduction' or 'Definitions' (in either language).",
+        #     "2. Only extract **clear instructions or rules** that contain obligations or restrictions (e.g. what must be done, or what is prohibited).",
+        #     "3. Do not include summaries, explanations, or rephrasing. Only extract the exact sentence as it appears in the input.",
+        #     "",
+        #     "🌍 Language detection:",
+        #     "- If the extracted sentence is **Arabic**, use this title format: `\"التعليمات: n\"`",
+        #     "- If the extracted sentence is **English**, use this title format: `\"Instruction: n\"`",
+        #     "",
+        #     "🟢 Valid sentences typically begin with:",
+        #     "- Arabic: \"يجب\", \"لا يجوز\", \"لا يجب\", \"يمكن\", \"يقتصر\", \"يُحظر\", \"يلتزم\", \"يتعين\"",
+        #     "- English: \"must\", \"must not\", \"shall\", \"shall not\", \"should\", \"may\", \"is required to\", \"is prohibited from\"",
+        #     "",
+        #     "📦 Return your results in the following pure JSON format.",
+        #     "",
+        #     "🔸 Example (Arabic only):",
+        #     "{",
+        #     "  \"clauses\": [",
+        #     "    {",
+        #     "      \"title\": \"التعليمات: 1\",",
+        #     "      \"description\": \"يجب على مقدم الخدمة حماية البيانات الشخصية.\"",
+        #     "    },",
+        #     "    {",
+        #     "      \"title\": \"التعليمات: 2\",",
+        #     "      \"description\": \"يُحظر على مقدم الخدمة مشاركة البيانات دون موافقة المستخدم.\"",
+        #     "    }",
+        #     "  ]",
+        #     "}",
+        #     "",
+        #     "🔸 Example (English only):",
+        #     "{",
+        #     "  \"clauses\": [",
+        #     "    {",
+        #     "      \"title\": \"Instruction: 1\",",
+        #     "      \"description\": \"The provider must notify users of any security breach.\"",
+        #     "    },",
+        #     "    {",
+        #     "      \"title\": \"Instruction: 2\",",
+        #     "      \"description\": \"Users must not share their passwords with unauthorized parties.\"",
+        #     "    }",
+        #     "  ]",
+        #     "}",
+        #     "",
+        #     "🚫 DO NOT include:",
+        #     "- Any explanations or commentary",
+        #     "- Markdown formatting",
+        #     "- Code blocks or extra text",
+        #     "",
+        #     "✅ ONLY return the pure JSON object as shown in the examples above."
+        # ])
 
+        system_message = """You are an intelligent assistant specialized in extracting legal or regulatory clauses written in Arabic.
 
+Your task is to extract explicit instructions, obligations, prohibitions, or legal conditions from Arabic text. Focus only on sentences that define what must be done, what is not allowed, or conditions under which something is permitted.
+
+--------------------------------
+🔍 What to Extract:
+--------------------------------
+✅ Only extract sentences that:
+- Begin with mandatory words like: "يجب", "يلتزم", "يتعين", "يُشترط", "يتوجب", "يقتضي", "من اللازم"
+- Or contain prohibitive terms such as: "لا يجوز", "لا يجب", "يُحظر", "ممنوع", "محظور"
+- Or clearly state legal conditions such as: "إذا ... فيجب", "في حال ... يجب"
+- Or exceptions like: "لا يجوز ... إلا إذا ..."
+
+✅ Sentences must:
+- Be explicit and enforceable
+- Express a regulatory, contractual, or compliance-related action
+- Contain a clear obligation, restriction, or required condition
+
+--------------------------------
+🚫 What to Ignore:
+--------------------------------
+- Any content under the following headings: "المقدمة", "التمهيد", "التعريفات", "نطاق الوثيقة", "الملخص"
+- Descriptive or explanatory sentences without obligation or prohibition
+- References such as: "انظر المادة 4", "راجع الملحق أ"
+- Incomplete or placeholder sentences like: "—", "__", "[تحديد لاحق]"
+
+--------------------------------
+📌 Title Format:
+--------------------------------
+- Use the format: "Instruction: n"  
+- Replace n with a sequential number starting from 1
+
+--------------------------------
+📦 Output Format (Pure JSON):
+--------------------------------
+Return the result as *a pure JSON object*, without any explanation, markdown, or extra formatting.
+
+Each extracted clause must follow this format:
+
+```json
+{
+  "clauses": [
+    {
+      "title": "Instruction: 1",
+      "description": "The exact Arabic sentence as it appeared in the source text.",
+      "source": {
+        "page_number": null,
+        "section_name": null,
+        "line_range": null
+      }
+    },
+    ...
+  ]
+}
+        """
+        
         logger.info("🧠 Preparing messages for the LLM...")
 
         messages = [
